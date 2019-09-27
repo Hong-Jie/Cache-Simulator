@@ -37,7 +37,11 @@ int myLog2(int num)
     else
        return -1; 
 }
-
+/*  Purpose: Find a block in the set to replace
+ *  Input: timeArr: store the last cycle that the block was accessed
+ *         repl: ways to replace block
+ *  Output: Index of block in the set
+ */
 int findReplace(int* timeArr, int arrSize, string repl)
 {
     if (repl == "l")
@@ -62,6 +66,11 @@ int findReplace(int* timeArr, int arrSize, string repl)
     return 0;
 }
 
+/*  Purpose: Find available index of block for the next miss
+ *  Input: strArr: fin
+ *         repl: ways to replace block
+ *  Output: Index of block in the set
+ */
 int findAvailableIndex(string* strArr, int arrSize)
 {
     for (int i=0; i<arrSize; i++)
@@ -164,20 +173,6 @@ int main(int argc, char** argv)
         ssCmd >> oper >> hexAddr;
         if (!ssCmd || ((oper != "r") && (oper != "w")))
             cerr << "Invalid trace input!" << endl;
-        // if (hexAddr == "0")
-        // {
-        //     if (oper == "r")
-        //     {
-        //         readCount++;
-        //         readMiss++;
-        //     }
-        //     else if (oper == "w")
-        //     {
-        //         writeCount++;
-        //         writeMiss++;
-        //     }
-        //     continue;
-        // }
 
         stringstream ssDec(hexAddr);
         ssDec >> hex >> tmpDec;
@@ -189,7 +184,6 @@ int main(int argc, char** argv)
         buf = new char [tagBits];
         addr.copy(buf, tagBits, 0);
         buf[tagBits] = '\0';
-        // Construct string tag using char*
         tag = buf;
         delete [] buf;
 
@@ -209,7 +203,6 @@ int main(int argc, char** argv)
         buf = new char [blockBits];
         addr.copy(buf, blockBits, tagBits+setBits);
         buf[setBits] = '\0';
-        // Construct string tag using char*
         block = buf;
         delete [] buf;
 
@@ -257,8 +250,6 @@ int main(int argc, char** argv)
             if (indexOfSet[set] == assoc)
             {
                 indexOfSet[set] = findReplace(timeAccess[set], assoc, repl);
-                cout << "set[" << set << "]: replace index " << indexOfSet[set]
-                    << ", cycle " << timeAccess[set][indexOfSet[set]] << endl;
             }
             /* If miss, put tag on the block regardless of read/write */
             cacheTable[set][indexOfSet[set]] = tag;
@@ -270,8 +261,6 @@ int main(int argc, char** argv)
         hit = false;
     }
 
-    cout << "Total Counts: " << readCount+writeCount << endl;
-    cout << "Hit Counts: " << hitCount << endl;
     cout << readMiss + writeMiss << " ";
     cout << (double)(readMiss + writeMiss)/(readCount + writeCount)*100 << "% ";
     cout << readMiss << " ";
