@@ -8,26 +8,6 @@ using namespace std;
 #define ADDR_LEN 64
 #define MIN(A,B) (A>B)?B:A
 
-bool checkCommand(int argc, char** argv)
-{
-    if (argc != 9)
-        return false;
-
-    if (strcmp(argv[1],"nk") != 0)
-        return false;
-
-    if (strcmp(argv[3],"assoc") != 0)
-        return false;
-
-    if (strcmp(argv[5],"blocksize") != 0)
-        return false;
-
-    if (strcmp(argv[7],"repl") != 0)
-        return false;
-
-    return true;
-}
-
 int parseParameters(char* argStr, long* pPar)
 {
     char* pErr;
@@ -58,21 +38,21 @@ int myLog2(int num)
        return -1; 
 }
 
-int findReplace(string* strArr, int arrSize, string repl, int* freq)
+int findReplace(int* timeArr, int arrSize, string repl)
 {
     if (repl == "l")
     {
-        int lessHit = INT_MIN;
-        int lessHitIdx = 0;
+        int cycle = INT_MAX;
+        int lru = 0;
         for (int i=0; i<arrSize; i++)
         {
-            if (lessHit > freq[i])
+            if (cycle > timeArr[i])
             {
-                lessHit = freq[i];
-                lessHitIdx = i;
+                cycle = timeArr[i];
+                lru = i;
             }
         } 
-        return lessHitIdx;
+        return lru;
     }
     else if (repl == "r")
     {
@@ -89,40 +69,38 @@ int findAvailableIndex(string* strArr, int arrSize)
         if (strArr[i] == "")
             return i;
     }
-
     return arrSize;
 }
 
 int main(int argc, char** argv)
 {
     /* Check and Parse parameters */
-    if (!checkCommand(argc, argv))
+    if (argc != 5)
     {
-        cerr << "Invalid Command Line!" << endl;
+        cerr << "Invalid number of parameters!" << endl;
         return -1;
     }
 
     int tagBits, setBits, blockBits;
-    
     long nk, assoc, blockSize, numSets;
-    if ((parseParameters(argv[2], &nk) \
-            && parseParameters(argv[4], &assoc) \
-            && parseParameters(argv[6], &blockSize)) != true)
+    
+    if ((parseParameters(argv[1], &nk) \
+            && parseParameters(argv[2], &assoc) \
+            && parseParameters(argv[3], &blockSize)) != true)
     {
         return -1; 
     }
-    if ((strcmp(argv[8], "l") != 0) && (strcmp(argv[8], "r") != 0))
+    if ((strcmp(argv[4], "l") != 0) && (strcmp(argv[4], "r") != 0))
     {
-        cerr << "Invalid paremeter: " << argv[8] << endl;
+        cerr << "Invalid paremeter: " << argv[4] << endl;
         return -1;
     }
-    string repl = argv[8];
+    string repl = argv[4];
 
-
-    /* Construct a cache table */
+    /* Calculate the number of sets */
     if (nk % assoc == 0) 
     {
-        numSets = (int)nk/(int)assoc;
+        numSets = (int)nk*1024/(int)assoc;
     }
     else
     {
@@ -130,23 +108,23 @@ int main(int argc, char** argv)
         cerr << "The Capacity of the cache must be divisible by the associative!" << endl;
         return -1;
     }
+
+    /* Construct a cache table */
     string** cacheTable = new string* [numSets];
     for (int i=0; i<numSets; i++)
     {
         cacheTable[i] = new string [assoc];
     }
-
     /* Construct a table of the available index in certain set */
     int* indexOfSet = new int [numSets]();
-
-    /* Construct a table to store the hit frequency */
-    int** freqHit = new int* [numSets]();
+    /* Construct a table to store the access time of each block */
+    int** timeAccess = new int* [numSets]();
     for (int i=0; i<numSets; i++)
     {
-        freqHit[i] = new int [assoc];
+        timeAccess[i] = new int [assoc];
     }
 
-    /* Configure bits arrangement in address */
+    /* Configure number of bits of tag, set, block in the address */
     if ((blockBits = myLog2(blockSize)) == -1)
     {
         cerr << "The block size is not power of 2!" << endl;
@@ -159,38 +137,58 @@ int main(int argc, char** argv)
     }
     tagBits = ADDR_LEN - blockBits - setBits;
 
-    /* For Debug
-     * cout << "Tag bits: " << tagBits << endl;
-     * cout << "Set bits: " << setBits << endl;
-     * cout << "Block bits: " << blockBits << endl;
-     */
+    /* For debug */
+    // cout << "Tag bits: " << tagBits << endl;
+    // cout << "Set bits: " << setBits << endl;
+    // cout << "Block bits: " << blockBits << endl;
+    
 
-    string cmd, oper, addr;
+    string cmd, oper, hexAddr, addr;
     string tag, block;
     long set;
-    int addrSize; 
-    char* buf;
-    char* pErr;
+    int addrBits; 
+    char *buf, *pErr;
+    stringstream ssDec;
+    unsigned long tmpDec;
+
+    int hitCount=0;
     int readCount=0, writeCount=0;
     int readMiss=0, writeMiss=0;
+    int cycle=0;
+    bool hit=false;
 
     while (getline(cin, cmd) && !cmd.empty())
     {
-        stringstream ss(cmd);
-        ss >> oper >> addr;
-        if (!ss || ((oper != "r") && (oper != "w")))
+        cycle++;
+        stringstream ssCmd(cmd);
+        ssCmd >> oper >> hexAddr;
+        if (!ssCmd || ((oper != "r") && (oper != "w")))
             cerr << "Invalid trace input!" << endl;
+        // if (hexAddr == "0")
+        // {
+        //     if (oper == "r")
+        //     {
+        //         readCount++;
+        //         readMiss++;
+        //     }
+        //     else if (oper == "w")
+        //     {
+        //         writeCount++;
+        //         writeMiss++;
+        //     }
+        //     continue;
+        // }
 
-        cout << "oper: " << oper << " addr: " << addr << endl;
+        stringstream ssDec(hexAddr);
+        ssDec >> hex >> tmpDec;
+        addr = bitset<64>(tmpDec).to_string();
 
-        // Padding '0' before the address    
-        addrSize = addr.size();
-        for (int i=0; i<ADDR_LEN-addrSize; i++)
-            addr.insert(0,"0");
+        /* For debug */
+        // cout << "binary addr: " << addr << endl;
 
         buf = new char [tagBits];
         addr.copy(buf, tagBits, 0);
-        buf[setBits] = '\0';
+        buf[tagBits] = '\0';
         // Construct string tag using char*
         tag = buf;
         delete [] buf;
@@ -198,9 +196,10 @@ int main(int argc, char** argv)
         buf = new char [setBits];
         addr.copy(buf, setBits, tagBits);
         buf[setBits] = '\0';
-        set = strtol(buf, &pErr, 16);
+        set = strtol(buf, &pErr, 2);
         if (*pErr || (set>numSets))
         {
+            *pErr = 0;
             cerr << "Invalid address: set number (" << set << ") larger than " 
                 << "number of sets (" << numSets << ")" << endl;
             continue;
@@ -214,43 +213,71 @@ int main(int argc, char** argv)
         block = buf;
         delete [] buf;
 
-        if (oper == "r")
-        {
-            readCount++;
-            for (int i=0; i<assoc; i++)
-            {
-                if (cacheTable[set][i] != tag)
-                    readMiss++;
-                else
-                    freqHit[set][i]++;
-            }
-        }
-        else if (oper == "w")
-        {
-            writeCount++;
-            for (int i=0; i<assoc; i++)
-            {
-                if (cacheTable[set][i] != tag)
-                    writeMiss++;
-                else
-                    freqHit[set][i]++;
-            }
-        }
-        if (indexOfSet[set] == assoc)
-        {
-            indexOfSet[set] = findReplace(cacheTable[set], assoc, repl, freqHit[set]);
-        }
-        cacheTable[set][indexOfSet[set]] = tag;
-        indexOfSet[set] = findAvailableIndex(cacheTable[set], assoc);
+        /* For debug */
+        // cout << "tag: " << tag << endl;
+        // cout << "set: " << set << endl;
 
+        for (int i=0; i<assoc; i++)
+        {
+            if (cacheTable[set][i] == tag)
+            {
+                hit = true;
+                hitCount++;
+                /* Record the last cycle in which the block access */
+                timeAccess[set][i] = cycle;
+                /* For debug */
+                // cout << "[HIT] set, tag = " << set << " " << tag << endl;
+                // cout << "Hit Counts: " << hitCount << endl;
+                break;
+            }
+        }
+
+        if (oper == "r")
+            readCount++;
+        else if (oper == "w")
+            writeCount++;
+
+        /* A miss occur */
+        if (!hit)
+        {
+            if (oper == "r")
+            {
+                readMiss++;
+            }
+            else if (oper == "w")
+            {
+                writeMiss++;
+            }
+            
+            /* Determine which block to store either the read data accessed 
+             * from the memory or the write data given by the processor. 
+             * If the all the block in the set are occupied (indexOfSet will 
+             * return the number of blocks), find another block to replace
+             * using the specified method, LRU or random. */
+            if (indexOfSet[set] == assoc)
+            {
+                indexOfSet[set] = findReplace(timeAccess[set], assoc, repl);
+                cout << "set[" << set << "]: replace index " << indexOfSet[set]
+                    << ", cycle " << timeAccess[set][indexOfSet[set]] << endl;
+            }
+            /* If miss, put tag on the block regardless of read/write */
+            cacheTable[set][indexOfSet[set]] = tag;
+            /* Record the last cycle in which the block access */
+            timeAccess[set][indexOfSet[set]] = cycle;
+            /* Find available block for the next miss */
+            indexOfSet[set] = findAvailableIndex(cacheTable[set], assoc);
+        }
+        hit = false;
     }
 
-    cout << readMiss + writeMiss;
-    cout << (readMiss + writeMiss)/(readCount + writeCount);
-    cout << readMiss;
-    cout << readMiss/readCount;
-    cout << writeMiss;
-    cout << writeMiss/writeCount << endl;
+    cout << "Total Counts: " << readCount+writeCount << endl;
+    cout << "Hit Counts: " << hitCount << endl;
+    cout << readMiss + writeMiss << " ";
+    cout << (double)(readMiss + writeMiss)/(readCount + writeCount)*100 << "% ";
+    cout << readMiss << " ";
+    cout << (double)readMiss/readCount*100 << "% ";
+    cout << writeMiss << " ";
+    cout << (double)writeMiss/writeCount*100 << "%" << endl;
     
     /* Delete the cache table */
     for (int i=0; i<assoc; i++)
@@ -263,9 +290,9 @@ int main(int argc, char** argv)
     
     for (int i=0; i<assoc; i++)
     {
-        delete [] freqHit[i];
+        delete [] timeAccess[i];
     }
-    delete [] freqHit;
+    delete [] timeAccess;
     
     return 0;
 }
